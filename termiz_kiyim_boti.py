@@ -1219,6 +1219,57 @@ def api_admin_export():
     try: return _flask_send(DB_FILE, as_attachment=True, download_name="termiz_baza_zaxira.json")
     except Exception as e: return _flask_jsonify({"error": str(e)}), 500
 
+
+@app.route('/api/admin/products')
+def api_admin_products():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    out=[]
+    for slug, s in DB.get("shops", {}).items():
+        for pid, pr in (s.get("products") or {}).items():
+            out.append({"shop_slug": slug, "shop_name": s.get("name",""), "pid": pid, "name": pr.get("name",""), "price": pr.get("price",0), "sizes": pr.get("sizes",[]), "colors": pr.get("colors",[]), "stock": pr.get("stock",0), "photo": pr.get("photo","")})
+    return _flask_jsonify({"products": out})
+@app.route('/api/admin/product_update', methods=['POST'])
+def api_admin_product_update():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    d=_flask_request.get_json(silent=True) or {}
+    slug=d.get("shop_slug"); pid=d.get("pid")
+    shop=DB.get("shops", {}).get(slug)
+    if not shop or pid not in (shop.get("products") or {}): return _flask_jsonify({"error":"Topilmadi"}),404
+    pr=shop["products"][pid]
+    if "name" in d: pr["name"]=str(d["name"])
+    if "price" in d:
+        try: pr["price"]=int(d["price"])
+        except: pass
+    if "stock" in d:
+        try: pr["stock"]=int(d["stock"])
+        except: pass
+    if "sizes" in d: pr["sizes"]=[x.strip() for x in str(d["sizes"]).split(",") if x.strip()]
+    if "colors" in d: pr["colors"]=[x.strip() for x in str(d["colors"]).split(",") if x.strip()]
+    save(); return _flask_jsonify({"ok":True})
+@app.route('/api/admin/product_delete', methods=['POST'])
+def api_admin_product_delete():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    d=_flask_request.get_json(silent=True) or {}
+    slug=d.get("shop_slug"); pid=d.get("pid")
+    shop=DB.get("shops", {}).get(slug)
+    if shop and pid in (shop.get("products") or {}):
+        del shop["products"][pid]; save(); return _flask_jsonify({"ok":True})
+    return _flask_jsonify({"error":"Topilmadi"}),404
+@app.route('/api/admin/product_add', methods=['POST'])
+def api_admin_product_add():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    d=_flask_request.get_json(silent=True) or {}
+    slug=d.get("shop_slug"); shop=DB.get("shops", {}).get(slug)
+    if not shop: return _flask_jsonify({"error":"Do'kon topilmadi"}),404
+    import uuid as _uuid
+    pid=str(_uuid.uuid4())[:8]
+    try: price=int(d.get("price",0))
+    except: price=0
+    try: stock=int(d.get("stock",0))
+    except: stock=0
+    shop.setdefault("products", {})[pid]={"name": str(d.get("name","Yangi mol")), "price": price, "sizes": [x.strip() for x in str(d.get("sizes","M")).split(",") if x.strip()], "colors": [x.strip() for x in str(d.get("colors","Qora")).split(",") if x.strip()], "stock": stock, "photo": ""}
+    save(); return _flask_jsonify({"ok":True,"pid":pid})
+
 async def main():
     app_bot = Application.builder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
