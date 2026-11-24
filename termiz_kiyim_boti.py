@@ -65,8 +65,21 @@ CATEGORIES = ["👨 Erkaklar", "👩 Ayollar", "🧒 Bolalar", "👟 Oyoq kiyim"
 
 def load():
     try:
-        with open(DB_FILE, "r", encoding="utf-8") as f: return json.load(f)
+        with open(DB_FILE, "r", encoding="utf-8") as f: _d = json.load(f)
     except: return {"users": {}, "shops": {}, "orders": {}, "counter": 1}
+    try:
+        _cleaned = False
+        for _s in (_d.get("shops") or {}).values():
+            for _pr in (_s.get("products") or {}).values():
+                if isinstance(_pr.get("photo"), str) and _pr["photo"].startswith("data:"):
+                    _pr["photo"] = ""; _cleaned = True
+        if _cleaned:
+            try:
+                with open(DB_FILE, "w", encoding="utf-8") as _f: json.dump(_d, _f, ensure_ascii=False, indent=2)
+                print("TOZALANDI: eski base64 rasmlar ochirildi, baza kichraytirildi")
+            except Exception: pass
+    except Exception: pass
+    return _d
 def save():
     try: _sync_archive_all()
     except Exception: pass
@@ -1131,28 +1144,17 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-# --- RASM YORDAMCHISI: paneldan yuklangan rasm (data:...) ham ishlaydi ---
+# --- RASM YORDAMCHISI: faqat Telegram file_id yoki http link. base64 TAQIQLANGAN ---
 async def send_product_photo(bot, chat_id, photo, caption, reply_markup=None):
     try:
-        if not photo: raise ValueError("no photo")
-        if str(photo).startswith("data:image"):
-            import base64 as _b64, tempfile as _tf, os as _os
-            _head, _data = str(photo).split(",", 1)
-            _ext = "jpg"
-            if "png" in _head: _ext = "png"
-            elif "webp" in _head: _ext = "webp"
-            _path = _tf.mktemp(suffix="."+_ext)
-            with open(_path, "wb") as _f: _f.write(_b64.b64decode(_data))
-            with open(_path, "rb") as _f: await bot.send_photo(chat_id, _f, caption=caption, reply_markup=reply_markup)
-            try: _os.remove(_path)
-            except: pass
-            return True
+        if not photo or str(photo).startswith("data:"): raise ValueError("no photo")
         await bot.send_photo(chat_id, photo, caption=caption, reply_markup=reply_markup)
         return True
     except Exception:
         try: await bot.send_message(chat_id, caption, reply_markup=reply_markup)
-        except: pass
+        except Exception: pass
         return False
+
 
 # ============ ADMIN PANEL (HTML, kompyuterdan kirish uchun) ============
 # Kirish: https://termiz-kiyim-boti.onrender.com/admin  + ADMIN_PASSWORD
@@ -1273,7 +1275,11 @@ def api_admin_product_update():
         except: pass
     if "sizes" in d: pr["sizes"]=[x.strip() for x in str(d["sizes"]).split(",") if x.strip()]
     if "colors" in d: pr["colors"]=[x.strip() for x in str(d["colors"]).split(",") if x.strip()]
-    if "photo" in d and str(d["photo"]).strip(): pr["photo"]=str(d["photo"]).strip()
+    if "photo" in d and str(d["photo"]).strip():
+        _ph = str(d["photo"]).strip()
+        if _ph.startswith("data:"): return _flask_jsonify({"error": "Rasmni fayl bilan emas, LINK bilan qoying."}), 400
+        if len(_ph) > 2000: return _flask_jsonify({"error": "Rasm linki juda uzun."}), 400
+        pr["photo"]=_ph
     save(); return _flask_jsonify({"ok":True})
 @app.route('/api/admin/product_delete', methods=['POST'])
 def api_admin_product_delete():
@@ -1296,7 +1302,7 @@ def api_admin_product_add():
     except: price=0
     try: stock=int(d.get("stock",0))
     except: stock=0
-    shop.setdefault("products", {})[pid]={"name": str(d.get("name","Yangi mol")), "price": price, "sizes": [x.strip() for x in str(d.get("sizes","M")).split(",") if x.strip()], "colors": [x.strip() for x in str(d.get("colors","Qora")).split(",") if x.strip()], "stock": stock, "photo": str(d.get("photo","") or "")}
+    shop.setdefault("products", {})[pid]={"name": str(d.get("name","Yangi mol")), "price": price, "sizes": [x.strip() for x in str(d.get("sizes","M")).split(",") if x.strip()], "colors": [x.strip() for x in str(d.get("colors","Qora")).split(",") if x.strip()], "stock": stock, "photo": ("" if str(d.get("photo","") or "").startswith("data:") else str(d.get("photo","") or ""))}
     save(); return _flask_jsonify({"ok":True,"pid":pid})
 
 async def main():
