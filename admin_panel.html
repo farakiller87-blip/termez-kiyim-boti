@@ -26,7 +26,7 @@ input,select{padding:10px;border-radius:10px;border:1px solid #333;background:#1
 <label>Bot manzili (Render)</label><input id="base" value="https://termiz-kiyim-boti.onrender.com">
 <br><br><label>Admin paroli</label><input id="pw" type="password" placeholder="Render dagi ADMIN_PASSWORD">
 <br><br><button class="btn" style="width:100%" onclick="doLogin()">Kirish →</button>
-<p id="loginErr" style="color:#ff5252"></p><p style="font-size:13px;color:#9aa3ad">Parol noto'g'ri bo'lsa Render → Environment → ADMIN_PASSWORD ni tekshir.</p></div>
+<button class="btn ghost" style="width:100%;margin-top:8px" onclick="localStorage.removeItem('tkb_pw');document.getElementById('pw').value='';alert('Eski saqlangan parol tozalandi. Endi yangi parolni yozib Kirish ni bos.')">🧹 Eski saqlangan parolni tozalash</button><p id="loginErr" style="color:#ff5252"></p><p style="font-size:13px;color:#9aa3ad">Parol noto'g'ri bo'lsa Render → Environment → ADMIN_PASSWORD ni tekshir.</p></div>
 
 <div id="app" class="hidden">
 <header><b>🧥 Termiz Kiyim Boti — Admin</b><span id="clock"></span><button class="btn ghost" onclick="logout()">Chiqish</button></header>
@@ -54,7 +54,7 @@ input,select{padding:10px;border-radius:10px;border:1px solid #333;background:#1
 <script>
 let BASE='',PW='',DATA=null,cur='orders';
 function tab(b,name){document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');cur=name;render();}
-async function doLogin(){BASE=document.getElementById('base').value.replace(/\/$/,'');PW=document.getElementById('pw').value;localStorage.setItem('tkb_base',BASE);localStorage.setItem('tkb_pw',PW);await load();}
+async function doLogin(){BASE=document.getElementById('base').value.trim().replace(/\/$/,'');PW=document.getElementById('pw').value.trim();localStorage.setItem('tkb_base',BASE);localStorage.setItem('tkb_pw',PW);await load();}
 async function load(){try{let r=await fetch(BASE+'/api/admin/data?password='+encodeURIComponent(PW));let j=await r.json();if(!r.ok) throw new Error(j.error||'Xato');DATA=j;document.getElementById('login').classList.add('hidden');document.getElementById('app').classList.remove('hidden');document.getElementById('loginErr').textContent='';render();}catch(e){document.getElementById('loginErr').textContent='❌ '+e.message+' — Bot manzili / parolni tekshir.'}}
 function logout(){localStorage.removeItem('tkb_pw');location.reload()}
 async function api(path,body){let r=await fetch(BASE+path+'?password='+encodeURIComponent(PW),{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});let j=await r.json();if(!r.ok) throw new Error(j.error||'Xato');return j}
