@@ -741,8 +741,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, sid, pid = data.split("_", 2); p = DB["shops"][sid]["products"][pid]
         kb = [[InlineKeyboardButton(f"📏 {s}", callback_data=f"size_{sid}_{pid}_{s}")] for s in p.get("sizes", ["M"])]
         kb.append([InlineKeyboardButton("⬅️ Orqaga", callback_data=f"shop_{sid}")])
-        try: await context.bot.send_photo(uid, p.get("photo", ""), caption=f"👕 {p['name']}\n💰 {p['price']:,} so'm\n🎨 Rang: {', '.join(p.get('colors', []))}\n📦 Qoldiq: {p.get('stock', 0)} ta\n\nRazmer tanlang:", reply_markup=InlineKeyboardMarkup(kb))
-        except: await q.message.reply_text(f"👕 {p['name']}\n💰 {p['price']:,} so'm\nRazmer tanlang:", reply_markup=InlineKeyboardMarkup(kb))
+        await send_product_photo(context.bot, uid, p.get("photo", ""), f"👕 {p['name']}\n💰 {p['price']:,} so'm\n🎨 Rang: {', '.join(p.get('colors', []))}\n📦 Qoldiq: {p.get('stock', 0)} ta\n\nRazmer tanlang:", reply_markup=InlineKeyboardMarkup(kb))
         return
     if data.startswith("size_"):
         _, sid, pid, size = data.split("_", 3); p = DB["shops"][sid]["products"][pid]
@@ -1126,6 +1125,30 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📥 Zaxira fayl keldi. Rostan ham hammasini shu fayl bilan almashtirilsinmi?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ HA, TIKLA", callback_data="restore_yes")],[InlineKeyboardButton("❌ YO'Q", callback_data="restore_no")]]))
 
 
+
+# --- RASM YORDAMCHISI: paneldan yuklangan rasm (data:...) ham ishlaydi ---
+async def send_product_photo(bot, chat_id, photo, caption, reply_markup=None):
+    try:
+        if not photo: raise ValueError("no photo")
+        if str(photo).startswith("data:image"):
+            import base64 as _b64, tempfile as _tf, os as _os
+            _head, _data = str(photo).split(",", 1)
+            _ext = "jpg"
+            if "png" in _head: _ext = "png"
+            elif "webp" in _head: _ext = "webp"
+            _path = _tf.mktemp(suffix="."+_ext)
+            with open(_path, "wb") as _f: _f.write(_b64.b64decode(_data))
+            with open(_path, "rb") as _f: await bot.send_photo(chat_id, _f, caption=caption, reply_markup=reply_markup)
+            try: _os.remove(_path)
+            except: pass
+            return True
+        await bot.send_photo(chat_id, photo, caption=caption, reply_markup=reply_markup)
+        return True
+    except Exception:
+        try: await bot.send_message(chat_id, caption, reply_markup=reply_markup)
+        except: pass
+        return False
+
 # ============ ADMIN PANEL (HTML, kompyuterdan kirish uchun) ============
 # Kirish: https://termiz-kiyim-boti.onrender.com/admin  + ADMIN_PASSWORD
 # admin_panel.html fayli bot yonida bo'lishi kerak (GitHub ga yuklanadi).
@@ -1245,6 +1268,7 @@ def api_admin_product_update():
         except: pass
     if "sizes" in d: pr["sizes"]=[x.strip() for x in str(d["sizes"]).split(",") if x.strip()]
     if "colors" in d: pr["colors"]=[x.strip() for x in str(d["colors"]).split(",") if x.strip()]
+    if "photo" in d and str(d["photo"]).strip(): pr["photo"]=str(d["photo"]).strip()
     save(); return _flask_jsonify({"ok":True})
 @app.route('/api/admin/product_delete', methods=['POST'])
 def api_admin_product_delete():
@@ -1267,7 +1291,7 @@ def api_admin_product_add():
     except: price=0
     try: stock=int(d.get("stock",0))
     except: stock=0
-    shop.setdefault("products", {})[pid]={"name": str(d.get("name","Yangi mol")), "price": price, "sizes": [x.strip() for x in str(d.get("sizes","M")).split(",") if x.strip()], "colors": [x.strip() for x in str(d.get("colors","Qora")).split(",") if x.strip()], "stock": stock, "photo": ""}
+    shop.setdefault("products", {})[pid]={"name": str(d.get("name","Yangi mol")), "price": price, "sizes": [x.strip() for x in str(d.get("sizes","M")).split(",") if x.strip()], "colors": [x.strip() for x in str(d.get("colors","Qora")).split(",") if x.strip()], "stock": stock, "photo": str(d.get("photo","") or "")}
     save(); return _flask_jsonify({"ok":True,"pid":pid})
 
 async def main():
