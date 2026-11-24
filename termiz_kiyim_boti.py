@@ -1,7 +1,7 @@
 
 # TERMIZ KIYIM BOTI - login + parol bilan kiriladi
 # requirements: python-telegram-bot==22.2 + Flask
-# FUNKSIYALAR: login/parol, ro'yxatdan o'tish, do'kon, mijoz, kuryer, admin,
+# FUNKSIYALAR: login/parol, ro'yxatdan o'tish, do'kon, mijoz, kuryer (MASOFA + PO PUTI 4 ta), admin,
 # qadoqlash yo'riqnomasi, tayyor rasm, lokatsiya, kuryer yo'lga chiqdi,
 # yetkazdim, 1-5 reyting (do'kon + kuryer, admin panelida hammaniki)
 import os, json, time, hashlib
@@ -92,9 +92,58 @@ def _arch_text(a):
     shops = "\n".join([f"  🏪 {s.get('name')} ({s.get('status','?')}) — 📞 {s.get('phone','—')} — 💳 Click: {s.get('click_card') or '—'} / Payme: {s.get('payme_card') or '—'} — 📄 Guvohnoma: {s.get('guvohnoma_num') or '—'}" for s in a.get("shops", [])]) or "  — do'koni yo'q"
     return (f"🗄️ ARXIV — {a.get('name','?')}\n\n👤 Ism: {a.get('name','?')}\n🆔 Telegram ID: {a.get('telegram_id')}\n🔑 Login: {a.get('login') or '—'}\n📞 Telefon: {a.get('phone') or '—'}\n🎭 Rol: {a.get('role')} / qulflangan: {a.get('locked_role') or '—'}\n🚴 Kuryer: {'ha' if a.get('courier_registered') else 'yo‘q'} ({a.get('courier_status') or '—'}) — 🪪 Pasport: {a.get('passport_num') or '—'}\n📦 Buyurtmalari: {a.get('orders_count',0)} ta — Yetkazgan: {a.get('delivered',0)} ta — Topgani: {a.get('earned_delivery',0):,} so'm\n\nDo'konlari:\n{shops}\n\n⚠️ Parol hash ko'rinmaydi — admin faqat YANGI parol bera oladi.")
 # --- SOZLAMALAR: admin paneldan o'zgartiriladi, db.json da saqlanadi (kodga tegish shart emas) ---
-DEFAULT_SETTINGS = {"delivery_city": 15000, "delivery_outside": 30000, "delivery_far": 50000, "commission": 2000, "free_delivery": 0}
+DEFAULT_SETTINGS = {"delivery_city": 15000, "delivery_outside": 30000, "delivery_far": 50000, "commission": 2000, "free_delivery": 0, "delivery_mode": "distance", "delivery_base": 8000, "delivery_per_km": 2500, "delivery_min": 12000, "delivery_max": 60000, "batch_max": 4}
 def get_settings():
     s = dict(DEFAULT_SETTINGS); s.update(DB.get("settings", {}) or {}); return s
+
+# --- KURYER YANGI TIZIM: MASOFA + PO PUTI ---
+# Xizmat haqi = do'kon manzili -> mijoz manzili masofasi bo'yicha.
+# Do'kon lokatsiyasi bo'lmasa Termiz markazi (37.2242, 67.2783) olinadi.
+# Kuryer 1 reysda batch_max tagacha buyurtmani po puti olib ketadi.
+import math as _math
+TERMIZ_CENTER = (37.2242, 67.2783)
+def haversine_km(lat1, lon1, lat2, lon2):
+    try:
+        R = 6371.0
+        dlat = _math.radians(float(lat2)-float(lat1)); dlon = _math.radians(float(lon2)-float(lon1))
+        a = _math.sin(dlat/2)**2 + _math.cos(_math.radians(float(lat1)))*_math.cos(_math.radians(float(lat2)))*_math.sin(dlon/2)**2
+        return 2*R*_math.asin(_math.sqrt(a))
+    except Exception: return 0.0
+def shop_coords(shop):
+    loc = (shop or {}).get("location")
+    if isinstance(loc, dict) and loc.get("lat"): return float(loc["lat"]), float(loc["lon"])
+    return TERMIZ_CENTER
+def calc_delivery_fee(shop, cust_loc):
+    s = get_settings()
+    if s.get("delivery_mode") != "distance": return None
+    if not isinstance(cust_loc, dict) or not cust_loc.get("lat"): return None
+    slat, slon = shop_coords(shop)
+    km = haversine_km(slat, slon, cust_loc["lat"], cust_loc["lon"])
+    fee = int(s.get("delivery_base", 8000) + km * s.get("delivery_per_km", 2500))
+    fee = max(int(s.get("delivery_min", 12000)), min(int(s.get("delivery_max", 60000)), fee))
+    fee = int(round(fee/500)*500)
+    return fee, round(km, 1)
+def courier_batch(uid):
+    return sorted([(k, v) for k, v in DB["orders"].items() if str(v.get("courier")) == str(uid) and v.get("status") == "onway"], key=lambda kv: kv[0])
+def batch_text(uid):
+    b = courier_batch(uid)
+    if not b: return "Reys yo'q."
+    lines = [f"📦 PO PUTI REYS — {len(b)} ta buyurtma (maks {get_settings().get('batch_max', 4)} ta):"]
+    total = 0
+    for i, (k, v) in enumerate(b, 1):
+        total += v.get("delivery", 0)
+        lines.append(f"{i}️⃣ #{k} — {v.get('address','—')} — 🚴 {v.get('delivery',0):,} so'm")
+    lines.append(f"💰 Jami xizmat haqi: {total:,} so'm")
+    return "\n".join(lines)
+def sort_batch_by_distance(uid):
+    # Kuryerning joriy reysini masofa bo'yicha tartiblash (eng yaqin mijoz 1-chi)
+    b = courier_batch(uid)
+    def _km(kv):
+        v = kv[1]; loc = v.get("location") or {}
+        if not isinstance(loc, dict) or not loc.get("lat"): return 999
+        return haversine_km(TERMIZ_CENTER[0], TERMIZ_CENTER[1], loc["lat"], loc["lon"])
+    return sorted(b, key=_km)
+
 def delivery_zones():
     s = get_settings()
     return {"1": ("🏙️ Shahar ichi", s["delivery_city"]), "2": ("🏡 Shahar tashqaris", s["delivery_outside"]), "3": ("🛣️ Uzoq tuman", s["delivery_far"])}
@@ -407,14 +456,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for _uid, _a in _found[:10]:
             await update.message.reply_text(_arch_text(_a), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔑 Yangi parol berish", callback_data=f"admin_setpass_{_uid}")],[InlineKeyboardButton("✏️ Loginni o'zgartirish", callback_data=f"admin_setlogin_{_uid}")]]))
         return
-    if step in ("admin_set_city", "admin_set_outside", "admin_set_far", "admin_set_commission", "admin_set_free"):
+    if step in ("admin_set_city", "admin_set_outside", "admin_set_far", "admin_set_commission", "admin_set_free", "admin_set_base", "admin_set_perkm", "admin_set_min", "admin_set_max", "admin_set_batch"):
         try: val = int(txt.replace(" ", "").replace(",", ""))
         except: await update.message.reply_text("❌ Faqat raqam yozing, masalan: 20000"); return
         _mx = 10000000 if step == "admin_set_free" else 500000
         if val < 0 or val > _mx:
             await update.message.reply_text(f"❌ Narx 0 dan {_mx:,} gacha bo'lishi kerak. Qaytadan yozing:"); return
-        key_map = {"admin_set_city": "delivery_city", "admin_set_outside": "delivery_outside", "admin_set_far": "delivery_far", "admin_set_commission": "commission", "admin_set_free": "free_delivery"}
-        set_setting(key_map[step], val); context.user_data["step"] = None
+        key_map = {"admin_set_city": "delivery_city", "admin_set_outside": "delivery_outside", "admin_set_far": "delivery_far", "admin_set_commission": "commission", "admin_set_free": "free_delivery", "admin_set_base": "delivery_base", "admin_set_perkm": "delivery_per_km", "admin_set_min": "delivery_min", "admin_set_max": "delivery_max", "admin_set_batch": "batch_max", "admin_set_max": "delivery_max"}
+        set_setting(key_map[step], val)
+        if step == "admin_set_min":
+            context.user_data["step"] = "admin_set_max"
+            await update.message.reply_text(f"✅ Eng kam saqlandi: {val:,} so'm\n\nEndi ENG KO'P ni yozing (masalan: 60000):"); return
+        if step == "admin_set_batch" and not (2 <= val <= 6):
+            await update.message.reply_text("❌ 2 dan 6 gacha yozing, masalan: 4"); return
+        context.user_data["step"] = None
         await update.message.reply_text(f"✅ Saqlandi: {val:,} so'm\n\nEndi mijozlarga ham, kuryerlarga ham shu yangi narx chiqadi.")
         # Sozlamalar ekranini qayta ko'rsatish uchun admin_settings ni chaqirish o'rniga matn bilan:
         s = get_settings()
@@ -452,7 +507,22 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📞 Telefon raqamingizni yozing:", reply_markup=ReplyKeyboardRemove()); return
         await update.message.reply_text("📍 Iltimos pastdagi tugma bilan lokatsiya yuboring yoki 'O'tkazib yuborish' deb yozing:"); return
     if step == "order_phone":
-        context.user_data["order_phone"] = txt; context.user_data["step"] = "order_zone"
+        context.user_data["order_phone"] = txt
+        # MASOFA TIZIMI: mijoz lokatsiya yuborgan bo'lsa - zona tanlatmaymiz, masofadan hisoblaymiz
+        _loc = context.user_data.get("order_location")
+        _cart0 = DB["users"][uid].get("cart", [])
+        _shop0 = DB["shops"].get(_cart0[0]["shop"]) if _cart0 else None
+        _calc = calc_delivery_fee(_shop0, _loc) if _loc else None
+        if _calc:
+            _fee, _km = _calc
+            _cart_total = sum(DB["shops"][i["shop"]]["products"][i["pid"]]["price"] * i["qty"] for i in _cart0)
+            _thr = get_settings().get('free_delivery', 0); _free = bool(_thr and _cart_total >= _thr)
+            if _free: _fee = 0
+            context.user_data["order_zone"] = f"📍 Masofa: {_km} km"; context.user_data["order_delivery"] = _fee; context.user_data["order_free"] = _free; context.user_data["step"] = "order_pay"
+            _del_tx = "🎁 BEPUL!" if _free else f"{_fee:,} so'm"
+            _pay_tx = "1 — 💵 Naqd (faqat mol pulini kuryerga berasiz — yetkazish BEPUL)\n2 — 🟣 Click (mol puli do'konchiga — yetkazish BEPUL)\n3 — 🔵 Payme (mol puli do'konchiga — yetkazish BEPUL)" if _free else "1 — 💵 Naqd (hammasini kuryerga berasiz)\n2 — 🟣 Click (mol puli do'konchiga, yetkazish haqi kuryerga naqd)\n3 — 🔵 Payme (mol puli do'konchiga, yetkazish haqi kuryerga naqd)"
+            await update.message.reply_text(f"📍 Masofa: {_km} km — do'kon → sizning manzilingiz\n🚴 Yetkazish: {_del_tx}\n💰 Mol: {_cart_total:,} so'm\n🧾 Jami: {_cart_total+_fee:,} so'm\n\n💳 TO'LOV USULINI TANLANG\n\n{_pay_tx}\n\nRaqam yozing: 1 / 2 / 3"); return
+        context.user_data["step"] = "order_zone"
         _s = get_settings()
         _free_note = f"\n\n🎁 {_s.get('free_delivery',0):,} so'mdan oshsa yetkazish BEPUL!" if _s.get('free_delivery',0) else ""
         await update.message.reply_text(f"🚴 YETKAZISH HUDUDINI TANLANG\n\nManzilingiz qayerda?\n\n1 — 🏙️ Shahar ichi — {_s['delivery_city']:,} so'm\n2 — 🏡 Shahar tashqaris — {_s['delivery_outside']:,} so'm\n3 — 🛣️ Uzoq tuman — {_s['delivery_far']:,} so'm{_free_note}\n\nRaqam yozing: 1 / 2 / 3"); return
@@ -842,23 +912,46 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("take_"):
         if u.get("courier_status") == "pending":
             await q.message.reply_text("⏳ Hali tasdiqlanmagansiz! Admin pasportingizni tekshiryapti."); return
-        oid = data.replace("take_", ""); DB["orders"][oid]["courier"] = uid; DB["orders"][oid]["status"] = "onway"; save()
+        oid = data.replace("take_", ""); o0 = DB["orders"].get(oid)
+        if not o0 or o0.get("status") != "ready": await q.message.reply_text("❌ Bu buyurtma allaqachon olingan."); return
+        _my = courier_batch(uid); _max = int(get_settings().get("batch_max", 4))
+        if len(_my) >= _max: await q.message.reply_text(f"❌ Reysingiz to'ldi — {_max} ta buyurtma bor. Avval bittasini yetkazib, keyin yangisini oling."); return
+        # Po puti: avvalgi reysdagi batch_id ni saqlaymiz, bo'lmasa yangisini yaratamiz
+        _bid = _my[0][1].get("batch_id") if _my else f"batch_{oid}"
+        DB["orders"][oid]["courier"] = uid; DB["orders"][oid]["status"] = "onway"; DB["orders"][oid]["batch_id"] = _bid; save()
         c = DB["users"].get(str(uid), {}); c_phone = c.get("phone") or "Bot orqali bog'laning"; c_name = c.get("name") or "Kuryer"
         o = DB["orders"][oid]
         _dtx2 = "🎁 Yetkazish BEPUL — bu buyurtmadan xizmat haqi yo'q." if o.get('delivery',0)==0 else f"🚴 Sizning xizmat haqingiz: {o['delivery']:,} so'm — mijozdan naqd olasiz."
-        await q.message.reply_text(f"🚴 Buyurtma #{oid} ni oldingiz!\n\n📍 Mijoz manzili: {o['address']} ({o.get('zone','')})\n{_dtx2}\n\n📞 Mijoz telefoni: {o['phone']}\n\nDo'kondan paketni olib, mijozga olib boring.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Yetkazdim", callback_data=f"delivered_{oid}")]]))
+        _cnt = len(courier_batch(uid)); _max2 = int(get_settings().get("batch_max", 4))
+        _kb_rows = [[InlineKeyboardButton("✅ Yetkazdim", callback_data=f"delivered_{oid}")]]
+        if _cnt < _max2: _kb_rows.append([InlineKeyboardButton("➕ Yana po puti olaman (3-4 ta)", callback_data="batch_more")])
+        _kb_rows.append([InlineKeyboardButton("📦 Mening reysim", callback_data="batch_view")])
+        await q.message.reply_text(f"🚴 Buyurtma #{oid} ni oldingiz!\n\n📍 Mijoz manzili: {o['address']} ({o.get('zone','')})\n{_dtx2}\n\n📞 Mijoz telefoni: {o['phone']}\n\n📦 Reysingizda hozir: {_cnt}/{_max2} ta buyurtma.\nDo'kondan paketni olib, mijozga olib boring.", reply_markup=InlineKeyboardMarkup(_kb_rows))
         if o.get("location"):
             try: await context.bot.send_location(uid, o["location"]["lat"], o["location"]["lon"])
             except: pass
-        try: await context.bot.send_message(o["user_id"], f"🚴 KURYER YO'LGA CHIQDI! #{oid}\n\nKuryer: {c_name}\n📞 Kuryer telefoni: {c_phone}\n📦 Buyurtmangiz hozir sizga olib kelinmoqda.")
+        try:
+            _pos = len(courier_batch(uid))
+            await context.bot.send_message(o["user_id"], f"🚴 KURYER YO'LGA CHIQDI! #{oid}\n\nKuryer: {c_name}\n📞 Kuryer telefoni: {c_phone}\n📦 Buyurtmangiz hozir sizga olib kelinmoqda.\n{'📦 Kuryer po puti yana buyurtma olib ketyapti — siz reysda ' + str(_pos) + '-chisiz.' if _pos > 1 else ''}")
         except: pass
+        return
+    if data == "batch_view":
+        await q.message.reply_text(batch_text(uid)); return
+    if data == "batch_more":
+        _my2 = courier_batch(uid); _max3 = int(get_settings().get("batch_max", 4))
+        if len(_my2) >= _max3: await q.message.reply_text(f"❌ Reysingiz to'ldi — {_max3} ta."); return
+        free2 = [(k, v) for k, v in DB["orders"].items() if v["status"] == "ready" and not v.get("courier")]
+        if not free2: await q.message.reply_text("Hozircha po puti oladigan bo'sh buyurtma yo'q."); return
+        for k, v in free2:
+            _dtx = "🎁 Yetkazish BEPUL" if v.get('delivery',0)==0 else f"🚴 Xizmat haqi: {v['delivery']:,} so'm"
+            await q.message.reply_text(f"📦 #{k} — {v['address']} ({v.get('zone','')})\n✅ Tayyor\nMol: {v['total']:,} + {_dtx}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚴 Po puti olaman", callback_data=f"take_{k}")]]))
         return
     if data.startswith("delivered_"):
         oid = data.replace("delivered_", ""); o = DB["orders"].get(oid)
         if not o: return
         o["status"] = "delivered"; save()
         cu = DB["users"].get(str(uid), {}); cu["delivered"] = cu.get("delivered", 0) + 1; cu["earned_delivery"] = cu.get("earned_delivery", 0) + o.get("delivery", 0); save()
-        await q.message.reply_text(f"✅ Buyurtma #{oid} yetkazildi deb belgilandi. Rahmat!\n🚴 Sizning xizmat haqingiz: {o.get('delivery',0):,} so'm — jami topganingiz: {cu.get('earned_delivery',0):,} so'm.")
+        await q.message.reply_text(f"✅ Buyurtma #{oid} yetkazildi deb belgilandi. Rahmat!\n🚴 Sizning xizmat haqingiz: {o.get('delivery',0):,} so'm — jami topganingiz: {cu.get('earned_delivery',0):,} so'm.\n\n{batch_text(uid) if courier_batch(uid) else '📦 Reysingiz tugadi — yangi buyurtma olishingiz mumkin.'}")
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"{'⭐'*i}", callback_data=f"rate_shop_{oid}_{i}")] for i in [5, 4, 3, 2, 1]])
         try: await context.bot.send_message(o["user_id"], f"✅ BUYURTMANGIZ YETKAZILDI! #{oid}\n\n⭐ DO'KONGA BAHO BERING (1-5):", reply_markup=kb)
         except: pass
@@ -867,7 +960,7 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s = get_settings()
         _free = s.get('free_delivery', 0)
         _free_tx = "o'chirilgan (0)" if not _free else f"{_free:,} so'mdan oshsa yetkazish BEPUL"
-        await q.message.reply_text(f"⚙️ NARXLAR — HOZIRGI HOLAT\n\n🏙️ Shahar ichi yetkazish: {s['delivery_city']:,} so'm\n🏡 Shahar tashqaris yetkazish: {s['delivery_outside']:,} so'm\n🛣️ Uzoq tuman yetkazish: {s['delivery_far']:,} so'm\n💸 Komissiya (har bir buyurtmadan do'konchidan): {s['commission']:,} so'm\n🎁 Bepul yetkazish chegarasi: {_free_tx}\n❌ Minimal buyurtma summasi: YO'Q — xohlagan summa bilan buyurtma berish mumkin.\n\nO'zgartirmoqchi bo'lgan narxni bosing, keyin yangi narxni yozing.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏙️ Shahar ichi narxini o'zgartirish", callback_data="admin_set_city")],[InlineKeyboardButton("🏡 Shahar tashqaris narxini o'zgartirish", callback_data="admin_set_outside")],[InlineKeyboardButton("🛣️ Uzoq tuman narxini o'zgartirish", callback_data="admin_set_far")],[InlineKeyboardButton("💸 Komissiyani o'zgartirish", callback_data="admin_set_commission")],[InlineKeyboardButton("🎁 Bepul yetkazish chegarasini o'zgartirish", callback_data="admin_set_free")]])); return
+        await q.message.reply_text(f"⚙️ NARXLAR — HOZIRGI HOLAT\n\n🚴 MASOFA TIZIMI (asosiy): {s.get('delivery_base',8000):,} + {s.get('delivery_per_km',2500):,} so\'m/km — min {s.get('delivery_min',12000):,} / maks {s.get('delivery_max',60000):,} — Po puti: {s.get('batch_max',4)} ta\n\n🏙️ Shahar ichi yetkazish: {s['delivery_city']:,} so'm\n🏡 Shahar tashqaris yetkazish: {s['delivery_outside']:,} so'm\n🛣️ Uzoq tuman yetkazish: {s['delivery_far']:,} so'm\n💸 Komissiya (har bir buyurtmadan do'konchidan): {s['commission']:,} so'm\n🎁 Bepul yetkazish chegarasi: {_free_tx}\n❌ Minimal buyurtma summasi: YO'Q — xohlagan summa bilan buyurtma berish mumkin.\n\nO'zgartirmoqchi bo'lgan narxni bosing, keyin yangi narxni yozing.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏙️ Shahar ichi narxini o'zgartirish", callback_data="admin_set_city")],[InlineKeyboardButton("🏡 Shahar tashqaris narxini o'zgartirish", callback_data="admin_set_outside")],[InlineKeyboardButton("🛣️ Uzoq tuman narxini o'zgartirish", callback_data="admin_set_far")],[InlineKeyboardButton("💸 Komissiyani o'zgartirish", callback_data="admin_set_commission")],[InlineKeyboardButton("🎁 Bepul yetkazish chegarasini o'zgartirish", callback_data="admin_set_free")],[InlineKeyboardButton("🚴 Masofa: boshlang'ich narx (hozir 8.000)", callback_data="admin_set_base")],[InlineKeyboardButton("🚴 Masofa: 1 km narxi (hozir 2.500)", callback_data="admin_set_perkm")],[InlineKeyboardButton("🚴 Masofa: eng kam / eng ko'p", callback_data="admin_set_min")],[InlineKeyboardButton("📦 Po puti: 1 reysda nechta (hozir 4)", callback_data="admin_set_batch")]])); return
     if data == "admin_set_city":
         await q.message.reply_text(f"🏙️ Shahar ichi yetkazish narxi hozir: {get_settings()['delivery_city']:,} so'm\n\nYangi narxni yozing (faqat raqam, masalan: 20000):"); context.user_data["step"] = "admin_set_city"; return
     if data == "admin_set_outside":
@@ -877,6 +970,14 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "admin_set_free":
         _f = get_settings().get('free_delivery', 0)
         await q.message.reply_text(f"🎁 Bepul yetkazish chegarasi hozir: {'o‘chirilgan (0)' if not _f else f'{_f:,} so‘m'}\n\nYangi chegarani yozing (faqat raqam):\nMasalan: 500000 — demak savat 500 000 so'mdan oshsa, yetkazish BEPUL bo'ladi.\nO'chirish uchun: 0 yozing."); context.user_data["step"] = "admin_set_free"; return
+    if data == "admin_set_base":
+        await q.message.reply_text(f"🚴 Boshlang'ich narx hozir: {get_settings()['delivery_base']:,} so'm\n\nYangi narxni yozing (masalan: 8000):"); context.user_data["step"] = "admin_set_base"; return
+    if data == "admin_set_perkm":
+        await q.message.reply_text(f"🚴 1 km narxi hozir: {get_settings()['delivery_per_km']:,} so'm\n\nYangi narxni yozing (masalan: 2500):"); context.user_data["step"] = "admin_set_perkm"; return
+    if data == "admin_set_min":
+        await q.message.reply_text(f"🚴 Eng kam hozir: {get_settings()['delivery_min']:,} / Eng ko'p: {get_settings()['delivery_max']:,} so'm\n\nAvval ENG KAM ni yozing (masalan: 12000):"); context.user_data["step"] = "admin_set_min"; return
+    if data == "admin_set_batch":
+        await q.message.reply_text(f"📦 Po puti — 1 reysda hozir: {get_settings()['batch_max']} ta\n\nYangi sonni yozing (2 dan 6 gacha, masalan: 4):"); context.user_data["step"] = "admin_set_batch"; return
     if data == "admin_set_commission":
         await q.message.reply_text(f"💸 Komissiya hozir: {get_settings()['commission']:,} so'm (har bir buyurtmadan)\n\nYangi komissiyani yozing (faqat raqam, masalan: 3000):"); context.user_data["step"] = "admin_set_commission"; return
     if data == "auth_forgot":
