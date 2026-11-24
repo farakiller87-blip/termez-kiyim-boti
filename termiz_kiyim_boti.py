@@ -184,9 +184,8 @@ def main_kb(role, locked=None):
         [InlineKeyboardButton("🔐 Parolni o'zgartirish", callback_data="change_pass")],
         [InlineKeyboardButton("🚪 Chiqish", callback_data="logout")],
     ]
-    if locked != "client":
-        base.insert(4, [InlineKeyboardButton("🏪 Do'konchi bo'lish", callback_data="register_shop")])
-        base.insert(5, [InlineKeyboardButton("🚴 Kuryer bo'lish", callback_data="register_courier")])
+    # MIJOZ PANELIDA do'konchi / kuryer bo'lish tugmalari BO'LMAYDI.
+    # Do'konchi / kuryer bo'lish faqat ro'yxatdan o'tishda tanlanadi.
     return InlineKeyboardMarkup(base)
 
 async def show_main(update, uid, text="Asosiy menyu:"):
