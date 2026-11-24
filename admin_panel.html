@@ -26,7 +26,7 @@ input,select{padding:10px;border-radius:10px;border:1px solid #333;background:#1
 <label>Bot manzili (Render)</label><input id="base" value="https://termiz-kiyim-boti.onrender.com">
 <br><br><label>Admin paroli</label><input id="pw" type="password" placeholder="Render dagi ADMIN_PASSWORD">
 <br><br><button class="btn" style="width:100%" onclick="doLogin()">Kirish →</button>
-<button class="btn ghost" style="width:100%;margin-top:8px" onclick="localStorage.removeItem('tkb_pw');document.getElementById('pw').value='';alert('Eski saqlangan parol tozalandi. Endi yangi parolni yozib Kirish ni bos.')">🧹 Eski saqlangan parolni tozalash</button><p id="loginErr" style="color:#ff5252"></p><p style="font-size:13px;color:#9aa3ad">Parol noto'g'ri bo'lsa Render → Environment → ADMIN_PASSWORD ni tekshir.</p></div>
+<p id="loginErr" style="color:#ff5252"></p><p style="font-size:13px;color:#9aa3ad">Parol noto'g'ri bo'lsa Render → Environment → ADMIN_PASSWORD ni tekshir.</p></div>
 
 <div id="app" class="hidden">
 <header><b>🧥 Termiz Kiyim Boti — Admin</b><span id="clock"></span><button class="btn ghost" onclick="logout()">Chiqish</button></header>
@@ -40,7 +40,6 @@ input,select{padding:10px;border-radius:10px;border:1px solid #333;background:#1
 <div class="tabs">
 <button class="active" data-t="orders" onclick="tab(this,'orders')">📦 Buyurtmalar</button>
 <button data-t="shops" onclick="tab(this,'shops')">🏪 Do'konlar</button>
-<button data-t="products" onclick="tab(this,'products')">👕 Mahsulotlar</button>
 <button data-t="couriers" onclick="tab(this,'couriers')">🚴 Kuryerlar</button>
 <button data-t="people" onclick="tab(this,'people')">👥 Odamlar / Arxiv</button>
 <button data-t="ratings" onclick="tab(this,'ratings')">⭐ Reytinglar</button>
@@ -54,7 +53,7 @@ input,select{padding:10px;border-radius:10px;border:1px solid #333;background:#1
 <script>
 let BASE='',PW='',DATA=null,cur='orders';
 function tab(b,name){document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');cur=name;render();}
-async function doLogin(){BASE=document.getElementById('base').value.trim().replace(/\/$/,'');PW=document.getElementById('pw').value.trim();localStorage.setItem('tkb_base',BASE);localStorage.setItem('tkb_pw',PW);await load();}
+async function doLogin(){BASE=document.getElementById('base').value.replace(/\/$/,'');PW=document.getElementById('pw').value;localStorage.setItem('tkb_base',BASE);localStorage.setItem('tkb_pw',PW);await load();}
 async function load(){try{let r=await fetch(BASE+'/api/admin/data?password='+encodeURIComponent(PW));let j=await r.json();if(!r.ok) throw new Error(j.error||'Xato');DATA=j;document.getElementById('login').classList.add('hidden');document.getElementById('app').classList.remove('hidden');document.getElementById('loginErr').textContent='';render();}catch(e){document.getElementById('loginErr').textContent='❌ '+e.message+' — Bot manzili / parolni tekshir.'}}
 function logout(){localStorage.removeItem('tkb_pw');location.reload()}
 async function api(path,body){let r=await fetch(BASE+path+'?password='+encodeURIComponent(PW),{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});let j=await r.json();if(!r.ok) throw new Error(j.error||'Xato');return j}
@@ -71,14 +70,6 @@ if(cur=='orders'){el.innerHTML='<h3>📦 Buyurtmalar — eng yangisi tepada</h3>
 if(cur=='shops'){el.innerHTML='<h3>🏪 Do\'konlar</h3><table><tr><th>Do\'kon</th><th>Telefon / Manzil</th><th>Holat</th><th>Reyting</th><th>Qarz</th><th>Karta</th><th>Amal</th></tr>'+DATA.shops.map(o=>`<tr><td><b>${esc(o.name)}</b><br><small>${esc(o.slug)}</small></td><td>${esc(o.phone)}<br>${esc(o.address)}</td><td><span class="badge ${o.status=='approved'?'ok':o.status=='pending'?'wait':''}">${esc(o.status)}</span></td><td>⭐ ${o.rating} (${o.ratings_count})</td><td>${o.debt.toLocaleString()}</td><td>Click: ${esc(o.click_card)}<br>Payme: ${esc(o.payme_card)}</td><td>${o.status=='pending'?`<button class="btn green" onclick="approveShop('${o.slug}')">✅ Tasdiqlash</button> <button class="btn red" onclick="rejectShop('${o.slug}')">❌ Rad</button>`:''}</td></tr>`).join('')+'</table>';}
 if(cur=='couriers'){el.innerHTML='<h3>🚴 Kuryerlar</h3><table><tr><th>Ism</th><th>Telefon</th><th>Pasport</th><th>Holat</th><th>Reyting</th><th>Yetkazgan / Topgani</th><th>Amal</th></tr>'+DATA.couriers.map(o=>`<tr><td>${esc(o.name)}<br><small>login: ${esc(o.login)}</small></td><td>${esc(o.phone)}</td><td>${esc(o.passport)}</td><td><span class="badge ${o.status=='approved'?'ok':'wait'}">${esc(o.status)}</span></td><td>⭐ ${o.rating} (${o.ratings_count})</td><td>${o.delivered} ta / ${o.earned.toLocaleString()} so\'m</td><td>${o.status=='pending'?`<button class="btn green" onclick="approveCourier('${o.uid}')">✅ Tasdiqlash</button>`:''} <button class="btn ghost" onclick="setPass('${o.uid}')">🔑 Parol</button></td></tr>`).join('')+'</table>';}
 if(cur=='people'){el.innerHTML='<div class="row"><input id="q" placeholder="🔎 Qidirish: ism / telefon / login"><button class="btn" onclick="searchPeople()">Qidirish</button></div><br><table><tr><th>Ism</th><th>Login / Telefon</th><th>Rol</th><th>Buyurtma</th><th>Amal</th></tr>'+DATA.people.map(o=>`<tr><td>${esc(o.name)}</td><td>${esc(o.login)}<br>${esc(o.phone)}</td><td>${esc(o.role)} ${o.courier?'🚴':''}</td><td>${o.orders_count}</td><td><button class="btn ghost" onclick="setPass('${o.uid}')">🔑 Yangi parol</button> <button class="btn ghost" onclick="setLogin('${o.uid}')">✏️ Login</button></td></tr>`).join('')+'</table>';}
-if(cur=='products'){
-  el.innerHTML=`<h3>👕 Mahsulotlar — do'konlarning mollari</h3>
-  <div class="row"><input id="prodSearch" placeholder="🔎 Mahsulot qidirish: nom / do'kon" oninput="render()"><select id="prodShopFilter" onchange="render()"><option value="">Hamma do'kon</option>${DATA.shops.map(s=>`<option value="${s.slug}">${s.name}</option>`).join('')}</select></div>
-  <br><div id="prodList"></div>
-  <h4>➕ Yangi mahsulot qo'shish</h4>
-  <div class="row"><select id="newShop">${DATA.shops.map(s=>`<option value="${s.slug}">${s.name}</option>`).join('')}</select><input id="newName" placeholder="Mol nomi: masalan Ko'ylak"><input id="newPrice" type="number" placeholder="Narxi: 120000"><input id="newStock" type="number" placeholder="Soni: 10"><input id="newSizes" placeholder="Razmerlar: S,M,L,XL"><input id="newColors" placeholder="Ranglar: Qora,Oq"><input id="newPhoto" placeholder="Rasm linki (ixtiyoriy)"></div><br><label style="color:#9aa3ad;font-size:13px">Yoki yangi mahsulotga rasm fayli tanla:</label> <input type="file" id="newPhotoFile_disabled" style="display:none" accept="image/*"><br><button class="btn" onclick="addProduct()">➕ Qo'shish</button>`;
-  loadProducts(); return;
-}
 if(cur=='ratings'){el.innerHTML='<h3>⭐ Reytinglar — hammaniki</h3><h4>🏪 Do\'konlar</h4><table><tr><th>Do\'kon</th><th>O\'rtacha</th><th>Baho soni</th></tr>'+DATA.shops.map(o=>`<tr><td>${esc(o.name)}</td><td>${'⭐'.repeat(Math.round(o.rating))} ${o.rating} / 5</td><td>${o.ratings_count}</td></tr>`).join('')+'</table><h4>🚴 Kuryerlar</h4><table><tr><th>Kuryer</th><th>O\'rtacha</th><th>Baho soni</th></tr>'+DATA.couriers.map(o=>`<tr><td>${esc(o.name)}</td><td>${'⭐'.repeat(Math.round(o.rating))} ${o.rating} / 5</td><td>${o.ratings_count}</td></tr>`).join('')+'</table>';}
 if(cur=='settings'){el.innerHTML=`<h3>⚙️ Narxlar — bu yerdan o'zgartirsang, botda ham darhol o'zgaradi</h3><div class="row">
 <div><label>🚴 Masofa: boshlang'ich (so'm)</label><input data-set="delivery_base" type="number" value="${s.delivery_base}"></div>
@@ -92,32 +83,6 @@ if(cur=='settings'){el.innerHTML=`<h3>⚙️ Narxlar — bu yerdan o'zgartirsang
 <div><label>💸 Komissiya (har bir buyurtmadan)</label><input data-set="commission" type="number" value="${s.commission}"></div>
 <div><label>🎁 Bepul yetkazish chegarasi (0 = o'chirilgan)</label><input data-set="free_delivery" type="number" value="${s.free_delivery}"></div>
 </div><br><button class="btn" onclick="saveSettings()">✅ Saqlash</button> <small style="color:#9aa3ad">Masofa formulasi: boshlang'ich + km × 1 km narxi, eng kam / eng ko'p oralig'ida.</small>`;}
-}
-async function loadProducts(){
-  let r=await fetch(BASE+'/api/admin/products?password='+encodeURIComponent(PW)); let j=await r.json(); window._prods=j.products||[];
-  renderProducts();
-}
-function renderProducts(){
-  let q=(document.getElementById('prodSearch')?.value||'').toLowerCase();
-  let sf=document.getElementById('prodShopFilter')?.value||'';
-  let list=(window._prods||[]).filter(p=> (!sf||p.shop_slug==sf) && (!q|| (p.name+' '+p.shop_name).toLowerCase().includes(q)) );
-  let el=document.getElementById('prodList'); if(!el) return;
-  el.innerHTML='<table><tr><th>Rasm</th><th>Do\'kon</th><th>Mahsulot</th><th>Narxi</th><th>Qoldiq</th><th>Razmer / Rang</th><th>Amal</th></tr>'+list.map(p=>{
-    let img = p.photo ? `<img src="${p.photo}" style="width:70px;height:70px;object-fit:cover;border-radius:10px" onerror="this.style.display='none'">` : '<span style="color:#888">Rasm yo\'q</span>';
-    return `<tr><td>${img}<br><input type="file" accept="image/*" onchange="uploadPhoto('${p.shop_slug}','${p.pid}',this)" style="width:110px;font-size:12px"><br><input id="ph_${p.pid}" placeholder="Yoki rasm linki" value="${(p.photo||'').startsWith('http')?p.photo:''}" style="width:130px"></td><td>${p.shop_name}</td><td><input id="n_${p.pid}" value="${p.name}"></td><td><input id="pr_${p.pid}" type="number" value="${p.price}"></td><td><input id="st_${p.pid}" type="number" value="${p.stock}"></td><td><input id="sz_${p.pid}" value="${(p.sizes||[]).join(',')}"><br><input id="cl_${p.pid}" value="${(p.colors||[]).join(',')}"></td><td><button class="btn green" onclick="saveProduct('${p.shop_slug}','${p.pid}')">💾 Saqlash</button><br><br><button class="btn red" onclick="delProduct('${p.shop_slug}','${p.pid}')">🗑️ O'chirish</button></td></tr>`
-  }).join('')+'</table><p style="color:#9aa3ad;font-size:13px">💡 Rasm qo'yishning 2 usuli: 1) <b>Fayl tanlash</b> — telefondan / kompyuterdan rasm tanla, 2) <b>Rasm linki</b> — masalan Telegram dan olingan linkni yoz. Fayl tanlasang, rasm avtomatik yuklanadi va saqlanadi.</p>';
-}
-async function uploadPhoto(slug,pid,input){ alert('Fayl bilan yuklash ochirilgan - u bazani oldirib qoydi. Rasm linkini yozing.'); input.value=''; }
-async function saveProduct(slug,pid){
-  let body={shop_slug:slug,pid:pid,name:document.getElementById('n_'+pid).value,price:Number(document.getElementById('pr_'+pid).value),stock:Number(document.getElementById('st_'+pid).value),sizes:document.getElementById('sz_'+pid).value,colors:document.getElementById('cl_'+pid).value,photo:document.getElementById('ph_'+pid)?.value||''};
-  await api('/api/admin/product_update',body); alert('✅ Saqlandi'); await loadProducts();
-}
-async function delProduct(slug,pid){ if(!confirm('Bu mahsulot o\'chirilsinmi?')) return; await api('/api/admin/product_delete',{shop_slug:slug,pid:pid}); await loadProducts(); }
-async function addProduct(){
-  let _photo=document.getElementById('newPhoto')?.value||'';
-  let body={shop_slug:document.getElementById('newShop').value,name:document.getElementById('newName').value,price:Number(document.getElementById('newPrice').value||0),stock:Number(document.getElementById('newStock').value||0),sizes:document.getElementById('newSizes').value,colors:document.getElementById('newColors').value,photo:_photo};
-  if(!body.name) return alert('Mol nomini yozing');
-  await api('/api/admin/product_add',body); alert('✅ Qo\'shildi'); await loadProducts();
 }
 async function searchPeople(){let q=document.getElementById('q').value;let r=await fetch(BASE+'/api/admin/search?q='+encodeURIComponent(q)+'&password='+encodeURIComponent(PW));let j=await r.json();DATA.people=j.people;render();}
 setInterval(()=>{let d=new Date();document.getElementById('clock')&&(document.getElementById('clock').textContent=d.toLocaleString('uz-UZ'))},1000);
