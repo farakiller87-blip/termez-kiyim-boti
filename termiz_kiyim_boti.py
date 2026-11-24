@@ -66,6 +66,12 @@ def save():
     try: _sync_archive_all()
     except Exception: pass
     with open(DB_FILE, "w", encoding="utf-8") as f: json.dump(DB, f, ensure_ascii=False, indent=2)
+    # --- ZAXIRA: har bir saqlashda nusxa olinadi, hech narsa yo'qolmaydi ---
+    try:
+        with open("db_backup.json", "w", encoding="utf-8") as f: json.dump(DB, f, ensure_ascii=False, indent=2)
+        import datetime as _dt
+        with open("db_backup_last.txt", "w", encoding="utf-8") as f: f.write(_dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    except Exception: pass
 DB = load()
 DB.setdefault("archive", {})
 # --- DOIMIY ARXIV: foydalanuvchi botni o'chirsa ham ma'lumoti o'chmaydi ---
@@ -165,6 +171,8 @@ def main_kb(role, locked=None):
             [InlineKeyboardButton("🚴 Kuryerlar", callback_data="admin_couriers")],
             [InlineKeyboardButton("⚙️ Narxlar — yetkazish + komissiya", callback_data="admin_settings")],
             [InlineKeyboardButton("🗄️ Arxiv / Parol tiklash", callback_data="admin_archive")],
+            [InlineKeyboardButton("💾 Zaxira / Export — bazani yuklab olish", callback_data="admin_backup")],
+            [InlineKeyboardButton("📥 Tiklash — zaxira faylni yuborish", callback_data="admin_restore_help")],
             [InlineKeyboardButton("🔐 Parolni o'zgartirish", callback_data="change_pass")],
             [InlineKeyboardButton("🚪 Chiqish", callback_data="logout")],
         ])
@@ -586,6 +594,29 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer(); data = q.data; uid = q.from_user.id; u = DB["users"].get(str(uid), {})
+
+    # --- ZAXIRA / TIKLASH (faqat admin) — hech kim o'chmaydi, arxivda turadi ---
+    if data == "admin_backup":
+        try:
+            await q.message.reply_text("💾 ZAXIRA HOLATI\n\nBazani fayl qilib yuklab olish uchun botga yoz:\n/export\n\nYoki zaxira holatini ko'rish uchun:\n/backup")
+        except: pass
+        return
+    if data == "admin_restore_help":
+        await q.message.reply_text("📥 TIKLASH QANDAY BO'LADI:\n\n1. Avval /export bilan olgan zaxira faylingni top (termiz_baza_zaxira.json)\n2. Shu faylni botga yubor (fayl qilib)\n3. Bot so'raydi: ✅ HA, TIKLA ni bos\n\n⚠️ Tiklashdan oldin hozirgi baza ham db_before_restore.json ga saqlanadi — adashsang ham yo'qolmaydi.")
+        return
+    if data == "restore_yes":
+        try:
+            new_db = json.loads(context.user_data.get("restore_data", b"{}"))
+            with open("db_before_restore.json", "w", encoding="utf-8") as f: json.dump(DB, f, ensure_ascii=False, indent=2)
+            DB.clear(); DB.update(new_db)
+            DB.setdefault("archive", {}); DB.setdefault("settings", {})
+            save()
+            await q.message.reply_text(f"✅ TIKLANDI!\n👥 Odamlar: {len(DB.get('users', {}))}\n🏪 Do'konlar: {len(DB.get('shops', {}))}\n📦 Buyurtmalar: {len(DB.get('orders', {}))}\n🗄️ Arxiv: {len(DB.get('archive', {}))}")
+        except Exception as e:
+            await q.message.reply_text(f"❌ Tiklashda xato: {e}")
+        return
+    if data == "restore_no":
+        await q.message.reply_text("❌ Tiklash bekor qilindi."); return
     # Auth tugmalari - hamma uchun ochiq
     if data == "auth_login":
         context.user_data["step"] = "auth_login_login"
@@ -959,9 +990,47 @@ async def on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except: pass
     await show_main(update, uid, "Asosiy menyu:")
 
+
+# --- ZAXIRA / TIKLASH BUYRUQLARI (faqat SUPER_ADMIN) ---
+async def export_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != SUPER_ADMIN:
+        await update.message.reply_text("⛔ Faqat admin."); return
+    save()
+    try:
+        last = open("db_backup_last.txt", encoding="utf-8").read()
+    except: last = "—"
+    try:
+        await update.message.reply_document(document=open(DB_FILE, "rb"), filename="termiz_baza_zaxira.json", caption=f"📦 HAMMA BAZA — ZAXIRA\n\n👥 Odamlar: {len(DB.get('users', {}))}\n🏪 Do'konlar: {len(DB.get('shops', {}))}\n📦 Buyurtmalar: {len(DB.get('orders', {}))}\n🗄️ Arxiv: {len(DB.get('archive', {}))}\nOxirgi zaxira: {last}\n\n⚠️ Bu faylni hech kimga berma! Hamma login, telefon, guvohnoma, pasport, karta shu yerda.\nTelefoningga + Google Drive ga saqlab qo'y.")
+    except Exception as e:
+        await update.message.reply_text(f"Xato: {e}")
+
+async def backup_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != SUPER_ADMIN:
+        await update.message.reply_text("⛔ Faqat admin."); return
+    try: last = open("db_backup_last.txt", encoding="utf-8").read()
+    except: last = "hali zaxira olinmagan"
+    await update.message.reply_text(f"💾 ZAXIRA HOLATI\n\nOxirgi zaxira: {last}\n👥 Odamlar: {len(DB.get('users', {}))}\n🏪 Do'konlar: {len(DB.get('shops', {}))}\n📦 Buyurtmalar: {len(DB.get('orders', {}))}\n🗄️ Arxiv (hech kim o'chmaydi): {len(DB.get('archive', {}))}\n\nBuyruqlar:\n/export — bazani yuklab olish\n/backup — shu holat\n\nTiklash: zaxira faylni botga yubor → ✅ HA, TIKLA ni bos.")
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Faqat admin yuborgan .json zaxira fayl tiklash uchun qabul qilinadi
+    if update.effective_user.id != SUPER_ADMIN: return
+    doc = update.message.document
+    if not doc or not doc.file_name.endswith(".json"): return
+    try:
+        f = await context.bot.get_file(doc.file_id)
+        data = await f.download_as_bytearray()
+        json.loads(bytes(data))  # zaxira ekanini tekshiramiz
+    except Exception:
+        await update.message.reply_text("❌ Bu zaxira faylga o'xshamaydi. /export bilan olgan faylni yubor."); return
+    context.user_data["restore_data"] = bytes(data)
+    await update.message.reply_text("📥 Zaxira fayl keldi. Rostan ham hammasini shu fayl bilan almashtirilsinmi?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ HA, TIKLA", callback_data="restore_yes")],[InlineKeyboardButton("❌ YO'Q", callback_data="restore_no")]]))
+
 async def main():
     app_bot = Application.builder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
+    app_bot.add_handler(CommandHandler("export", export_db))
+    app_bot.add_handler(CommandHandler("backup", backup_info))
+    app_bot.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app_bot.add_handler(CallbackQueryHandler(on_cb))
     app_bot.add_handler(MessageHandler(filters.LOCATION, on_location))
     app_bot.add_handler(MessageHandler(filters.PHOTO, on_photo))
