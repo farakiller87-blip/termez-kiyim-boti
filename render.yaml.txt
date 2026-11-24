@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: termiz-kiyim-boti
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements_kiyim.txt
+    startCommand: python termiz_kiyim_boti.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: KEEP_ALIVE_URL
+        value: https://termiz-kiyim-boti.onrender.com
+      - key: PYTHONUNBUFFERED
+        value: "1"
