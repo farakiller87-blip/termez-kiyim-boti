@@ -76,7 +76,7 @@ if(cur=='products'){
   <div class="row"><input id="prodSearch" placeholder="🔎 Mahsulot qidirish: nom / do'kon" oninput="render()"><select id="prodShopFilter" onchange="render()"><option value="">Hamma do'kon</option>${DATA.shops.map(s=>`<option value="${s.slug}">${s.name}</option>`).join('')}</select></div>
   <br><div id="prodList"></div>
   <h4>➕ Yangi mahsulot qo'shish</h4>
-  <div class="row"><select id="newShop">${DATA.shops.map(s=>`<option value="${s.slug}">${s.name}</option>`).join('')}</select><input id="newName" placeholder="Mol nomi: masalan Ko'ylak"><input id="newPrice" type="number" placeholder="Narxi: 120000"><input id="newStock" type="number" placeholder="Soni: 10"><input id="newSizes" placeholder="Razmerlar: S,M,L,XL"><input id="newColors" placeholder="Ranglar: Qora,Oq"><input id="newPhoto" placeholder="Rasm linki (ixtiyoriy)"></div><br><label style="color:#9aa3ad;font-size:13px">Yoki yangi mahsulotga rasm fayli tanla:</label> <input type="file" id="newPhotoFile" accept="image/*"><br><button class="btn" onclick="addProduct()">➕ Qo'shish</button>`;
+  <div class="row"><select id="newShop">${DATA.shops.map(s=>`<option value="${s.slug}">${s.name}</option>`).join('')}</select><input id="newName" placeholder="Mol nomi: masalan Ko'ylak"><input id="newPrice" type="number" placeholder="Narxi: 120000"><input id="newStock" type="number" placeholder="Soni: 10"><input id="newSizes" placeholder="Razmerlar: S,M,L,XL"><input id="newColors" placeholder="Ranglar: Qora,Oq"><input id="newPhoto" placeholder="Rasm linki (ixtiyoriy)"></div><br><label style="color:#9aa3ad;font-size:13px">Yoki yangi mahsulotga rasm fayli tanla:</label> <input type="file" id="newPhotoFile_disabled" style="display:none" accept="image/*"><br><button class="btn" onclick="addProduct()">➕ Qo'shish</button>`;
   loadProducts(); return;
 }
 if(cur=='ratings'){el.innerHTML='<h3>⭐ Reytinglar — hammaniki</h3><h4>🏪 Do\'konlar</h4><table><tr><th>Do\'kon</th><th>O\'rtacha</th><th>Baho soni</th></tr>'+DATA.shops.map(o=>`<tr><td>${esc(o.name)}</td><td>${'⭐'.repeat(Math.round(o.rating))} ${o.rating} / 5</td><td>${o.ratings_count}</td></tr>`).join('')+'</table><h4>🚴 Kuryerlar</h4><table><tr><th>Kuryer</th><th>O\'rtacha</th><th>Baho soni</th></tr>'+DATA.couriers.map(o=>`<tr><td>${esc(o.name)}</td><td>${'⭐'.repeat(Math.round(o.rating))} ${o.rating} / 5</td><td>${o.ratings_count}</td></tr>`).join('')+'</table>';}
@@ -107,19 +107,7 @@ function renderProducts(){
     return `<tr><td>${img}<br><input type="file" accept="image/*" onchange="uploadPhoto('${p.shop_slug}','${p.pid}',this)" style="width:110px;font-size:12px"><br><input id="ph_${p.pid}" placeholder="Yoki rasm linki" value="${(p.photo||'').startsWith('http')?p.photo:''}" style="width:130px"></td><td>${p.shop_name}</td><td><input id="n_${p.pid}" value="${p.name}"></td><td><input id="pr_${p.pid}" type="number" value="${p.price}"></td><td><input id="st_${p.pid}" type="number" value="${p.stock}"></td><td><input id="sz_${p.pid}" value="${(p.sizes||[]).join(',')}"><br><input id="cl_${p.pid}" value="${(p.colors||[]).join(',')}"></td><td><button class="btn green" onclick="saveProduct('${p.shop_slug}','${p.pid}')">💾 Saqlash</button><br><br><button class="btn red" onclick="delProduct('${p.shop_slug}','${p.pid}')">🗑️ O'chirish</button></td></tr>`
   }).join('')+'</table><p style="color:#9aa3ad;font-size:13px">💡 Rasm qo'yishning 2 usuli: 1) <b>Fayl tanlash</b> — telefondan / kompyuterdan rasm tanla, 2) <b>Rasm linki</b> — masalan Telegram dan olingan linkni yoz. Fayl tanlasang, rasm avtomatik yuklanadi va saqlanadi.</p>';
 }
-async function uploadPhoto(slug,pid,input){
-  let f=input.files[0]; if(!f) return;
-  let reader=new FileReader();
-  reader.onload=async()=>{
-    // Rasmni base64 qilib botga yuboramiz — bot uni Telegram ga yuklab file_id oladi va saqlaydi
-    // Hozircha to'g'ridan-to'g'ri link sifatida saqlaymiz: kichik rasmlar uchun ishlaydi
-    let dataUrl=reader.result;
-    await api('/api/admin/product_update',{shop_slug:slug,pid:pid,photo:dataUrl});
-    alert('✅ Rasm yuklandi! Endi mijozga shu rasm chiqadi.');
-    await loadProducts();
-  };
-  reader.readAsDataURL(f);
-}
+async function uploadPhoto(slug,pid,input){ alert('Fayl bilan yuklash ochirilgan - u bazani oldirib qoydi. Rasm linkini yozing.'); input.value=''; }
 async function saveProduct(slug,pid){
   let body={shop_slug:slug,pid:pid,name:document.getElementById('n_'+pid).value,price:Number(document.getElementById('pr_'+pid).value),stock:Number(document.getElementById('st_'+pid).value),sizes:document.getElementById('sz_'+pid).value,colors:document.getElementById('cl_'+pid).value,photo:document.getElementById('ph_'+pid)?.value||''};
   await api('/api/admin/product_update',body); alert('✅ Saqlandi'); await loadProducts();
@@ -127,8 +115,6 @@ async function saveProduct(slug,pid){
 async function delProduct(slug,pid){ if(!confirm('Bu mahsulot o\'chirilsinmi?')) return; await api('/api/admin/product_delete',{shop_slug:slug,pid:pid}); await loadProducts(); }
 async function addProduct(){
   let _photo=document.getElementById('newPhoto')?.value||'';
-  let _file=document.getElementById('newPhotoFile')?.files[0];
-  if(_file){ let _r=new FileReader(); _r.onload=async()=>{ let body2={shop_slug:document.getElementById('newShop').value,name:document.getElementById('newName').value,price:Number(document.getElementById('newPrice').value||0),stock:Number(document.getElementById('newStock').value||0),sizes:document.getElementById('newSizes').value,colors:document.getElementById('newColors').value,photo:_r.result}; await api('/api/admin/product_add',body2); alert('✅ Qo\'shildi (rasm bilan)'); await loadProducts(); }; _r.readAsDataURL(_file); return; }
   let body={shop_slug:document.getElementById('newShop').value,name:document.getElementById('newName').value,price:Number(document.getElementById('newPrice').value||0),stock:Number(document.getElementById('newStock').value||0),sizes:document.getElementById('newSizes').value,colors:document.getElementById('newColors').value,photo:_photo};
   if(!body.name) return alert('Mol nomini yozing');
   await api('/api/admin/product_add',body); alert('✅ Qo\'shildi'); await loadProducts();
