@@ -15,6 +15,11 @@ app = Flask(__name__)
 def home(): return "Termiz Kiyim Boti ishlayapti!"
 @app.route('/ping')
 def ping(): return "pong", 200
+
+@app.route('/debug')
+def debug_info():
+    _tok = (BOT_TOKEN or '')
+    return {'service': 'Termiz Kiyim Boti', 'token_oxiri': ('...' + _tok[-4:] if len(_tok) > 4 else 'YOQ - BOT_TOKEN bos!'), 'token_uzunligi': len(_tok), 'admin_password_uzunligi': len(ADMIN_PASSWORD), 'admin_password_bosh_harfi': (ADMIN_PASSWORD[:1] + '***' if ADMIN_PASSWORD else 'YOQ'), 'db_users': len(DB.get('users', {})), 'db_shops': len(DB.get('shops', {}))}, 200
 @app.route('/health')
 def health():
     return {"status": "ok", "bot": "Termiz Kiyim Boti", "users": len(DB.get("users", {})), "shops": len(DB.get("shops", {})), "orders": len(DB.get("orders", {}))}, 200
@@ -41,7 +46,7 @@ Thread(target=_keep_alive_loop, daemon=True).start()
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 SUPER_ADMIN = 6738827993  # <-- O'Z ID INGNI YOZ
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")  # <-- Render da o'zgartir! Admin paroli
+ADMIN_PASSWORD = (os.environ.get("ADMIN_PASSWORD") or "admin123").strip().strip(chr(34)).strip(chr(39))  # <-- Render da o'zgartir! Admin paroli
 COMMISSION_PER_ORDER = 2000
 # --- KURYER XIZMAT HAQI: shahar ichi / tashqaris / uzoq ---
 DELIVERY_CITY = 15000      # 🏙️ Shahar ichi (Termiz shahar)
@@ -1154,7 +1159,7 @@ async def send_product_photo(bot, chat_id, photo, caption, reply_markup=None):
 # admin_panel.html fayli bot yonida bo'lishi kerak (GitHub ga yuklanadi).
 from flask import request as _flask_request, jsonify as _flask_jsonify, send_file as _flask_send
 def _admin_ok():
-    return (_flask_request.args.get("password") or (_flask_request.get_json(silent=True) or {}).get("password") or _flask_request.headers.get("X-Admin-Password") or "") == ADMIN_PASSWORD
+    return str(_flask_request.args.get("password") or (_flask_request.get_json(silent=True) or {}).get("password") or _flask_request.headers.get("X-Admin-Password") or "").strip().strip(chr(34)).strip(chr(39)) == ADMIN_PASSWORD
 def _avg2(lst):
     lst = lst or []
     return round(sum(lst)/len(lst), 1) if lst else 0
@@ -1295,6 +1300,10 @@ def api_admin_product_add():
     save(); return _flask_jsonify({"ok":True,"pid":pid})
 
 async def main():
+    import asyncio as _aio2
+    if not BOT_TOKEN:
+        print("XATO: BOT_TOKEN Render Environment da yoq! Bot ishga tushmadi.")
+        await _aio2.Event().wait(); return
     app_bot = Application.builder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
     app_bot.add_handler(CommandHandler("export", export_db))
@@ -1305,8 +1314,20 @@ async def main():
     app_bot.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     print("Bot ishga tushdi...")
-    await app_bot.initialize(); await app_bot.start(); await app_bot.updater.start_polling()
-    import asyncio; await asyncio.Event().wait()
+    await app_bot.initialize(); await app_bot.start()
+    try: await app_bot.bot.delete_webhook(drop_pending_updates=True)
+    except Exception as _e: print("delete_webhook:", _e)
+    import asyncio as _aio
+    while True:
+        try:
+            await app_bot.updater.start_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
+            break
+        except Exception as _e:
+            print("Conflict / polling xato, 15 soniyadan keyin qayta urinaman:", _e)
+            try: await app_bot.updater.stop()
+            except Exception: pass
+            await _aio.sleep(15)
+    await _aio.Event().wait()
 
 if __name__ == "__main__":
     import asyncio; asyncio.run(main())
