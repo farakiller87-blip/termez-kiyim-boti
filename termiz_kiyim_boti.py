@@ -1125,6 +1125,100 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["restore_data"] = bytes(data)
     await update.message.reply_text("📥 Zaxira fayl keldi. Rostan ham hammasini shu fayl bilan almashtirilsinmi?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ HA, TIKLA", callback_data="restore_yes")],[InlineKeyboardButton("❌ YO'Q", callback_data="restore_no")]]))
 
+
+# ============ ADMIN PANEL (HTML, kompyuterdan kirish uchun) ============
+# Kirish: https://termiz-kiyim-boti.onrender.com/admin  + ADMIN_PASSWORD
+# admin_panel.html fayli bot yonida bo'lishi kerak (GitHub ga yuklanadi).
+from flask import request as _flask_request, jsonify as _flask_jsonify, send_file as _flask_send
+def _admin_ok():
+    return (_flask_request.args.get("password") or (_flask_request.get_json(silent=True) or {}).get("password") or _flask_request.headers.get("X-Admin-Password") or "") == ADMIN_PASSWORD
+def _avg2(lst):
+    lst = lst or []
+    return round(sum(lst)/len(lst), 1) if lst else 0
+@app.route('/admin')
+def admin_page():
+    try:
+        if os.path.exists("admin_panel.html"):
+            return _flask_send("admin_panel.html")
+    except Exception: pass
+    return "admin_panel.html topilmadi — GitHub ga admin_panel.html ni ham yukla.", 404
+@app.route('/api/admin/data')
+def api_admin_data():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    s = get_settings()
+    orders = []
+    for k, v in sorted(DB.get("orders", {}).items(), key=lambda x: int(x[0]) if str(x[0]).isdigit() else 0, reverse=True):
+        cust = DB.get("users", {}).get(str(v.get("user_id")), {})
+        shop_names = ", ".join([DB.get("shops", {}).get(i.get("shop"), {}).get("name", "?") for i in v.get("items", [])])
+        cour = DB.get("users", {}).get(str(v.get("courier")), {}) if v.get("courier") else {}
+        orders.append({"id": k, "customer": cust.get("name", "?"), "phone": v.get("phone", ""), "shop": shop_names, "total": v.get("total", 0), "delivery": v.get("delivery", 0), "zone": v.get("zone", ""), "status": v.get("status", ""), "courier": cour.get("name", "—") if cour else "—", "shop_rating": v.get("shop_rating"), "courier_rating": v.get("courier_rating")})
+    shops = []
+    for slug, v in DB.get("shops", {}).items():
+        shops.append({"slug": slug, "name": v.get("name", ""), "phone": v.get("phone", ""), "address": v.get("address", ""), "status": v.get("status", ""), "rating": _avg2(v.get("ratings", [])), "ratings_count": len(v.get("ratings", [])), "debt": v.get("debt", 0), "click_card": v.get("click_card") or "—", "payme_card": v.get("payme_card") or "—"})
+    couriers = []
+    for uid, v in DB.get("users", {}).items():
+        if v.get("courier_registered"):
+            couriers.append({"uid": uid, "name": v.get("name", "?"), "login": v.get("login", "—"), "phone": v.get("phone", "—"), "passport": v.get("passport_num", "—"), "status": v.get("courier_status", ""), "rating": _avg2(v.get("ratings", [])), "ratings_count": len(v.get("ratings", [])), "delivered": v.get("delivered", 0), "earned": v.get("earned_delivery", 0)})
+    people = []
+    for uid, v in DB.get("users", {}).items():
+        ocnt = sum(1 for o in DB.get("orders", {}).values() if str(o.get("user_id")) == str(uid))
+        people.append({"uid": uid, "name": v.get("name", "?"), "login": v.get("login", "—"), "phone": v.get("phone", "—"), "role": v.get("role", ""), "courier": bool(v.get("courier_registered")), "orders_count": ocnt})
+    return _flask_jsonify({"stats": {"users": len(DB.get("users", {})), "shops": len(DB.get("shops", {})), "orders": len(DB.get("orders", {})), "debt": sum(v.get("debt", 0) for v in DB.get("shops", {}).values())}, "settings": s, "orders": orders, "shops": shops, "couriers": couriers, "people": people})
+@app.route('/api/admin/settings', methods=['POST'])
+def api_admin_settings():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    d = _flask_request.get_json(silent=True) or {}
+    for k, v in d.items():
+        try: set_setting(k, int(v))
+        except Exception: pass
+    save(); return _flask_jsonify({"ok": True, "settings": get_settings()})
+@app.route('/api/admin/approve_shop', methods=['POST'])
+def api_admin_approve_shop():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    slug = (_flask_request.get_json(silent=True) or {}).get("slug")
+    if slug in DB.get("shops", {}): DB["shops"][slug]["status"] = "approved"; DB["shops"][slug]["active"] = True; save(); return _flask_jsonify({"ok": True})
+    return _flask_jsonify({"error": "Do'kon topilmadi"}), 404
+@app.route('/api/admin/reject_shop', methods=['POST'])
+def api_admin_reject_shop():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    slug = (_flask_request.get_json(silent=True) or {}).get("slug")
+    if slug in DB.get("shops", {}): del DB["shops"][slug]; save(); return _flask_jsonify({"ok": True})
+    return _flask_jsonify({"error": "Do'kon topilmadi"}), 404
+@app.route('/api/admin/approve_courier', methods=['POST'])
+def api_admin_approve_courier():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    uid = str((_flask_request.get_json(silent=True) or {}).get("uid"))
+    if uid in DB.get("users", {}): DB["users"][uid]["courier_status"] = "approved"; save(); return _flask_jsonify({"ok": True})
+    return _flask_jsonify({"error": "Topilmadi"}), 404
+@app.route('/api/admin/set_password', methods=['POST'])
+def api_admin_set_password():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    d = _flask_request.get_json(silent=True) or {}; uid = str(d.get("uid")); pw = str(d.get("password") or "")
+    if uid in DB.get("users", {}) and len(pw) >= 4: DB["users"][uid]["password_hash"] = hpw(pw); save(); return _flask_jsonify({"ok": True})
+    return _flask_jsonify({"error": "Parol kamida 4 belgi"}), 400
+@app.route('/api/admin/set_login', methods=['POST'])
+def api_admin_set_login():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    d = _flask_request.get_json(silent=True) or {}; uid = str(d.get("uid")); lg = str(d.get("login") or "").lower()
+    if uid in DB.get("users", {}) and len(lg) >= 3: DB["users"][uid]["login"] = lg; save(); return _flask_jsonify({"ok": True})
+    return _flask_jsonify({"error": "Login kamida 3 belgi"}), 400
+@app.route('/api/admin/search')
+def api_admin_search():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    q = (_flask_request.args.get("q") or "").lower()
+    out = []
+    for uid, v in DB.get("users", {}).items():
+        if q in str(v.get("name", "")).lower() or q in str(v.get("phone", "")).lower() or q in str(v.get("login", "")).lower():
+            ocnt = sum(1 for o in DB.get("orders", {}).values() if str(o.get("user_id")) == str(uid))
+            out.append({"uid": uid, "name": v.get("name", "?"), "login": v.get("login", "—"), "phone": v.get("phone", "—"), "role": v.get("role", ""), "courier": bool(v.get("courier_registered")), "orders_count": ocnt})
+    return _flask_jsonify({"people": out})
+@app.route('/api/admin/export')
+def api_admin_export():
+    if not _admin_ok(): return _flask_jsonify({"error": "Parol noto'g'ri"}), 401
+    save()
+    try: return _flask_send(DB_FILE, as_attachment=True, download_name="termiz_baza_zaxira.json")
+    except Exception as e: return _flask_jsonify({"error": str(e)}), 500
+
 async def main():
     app_bot = Application.builder().token(BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
